@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ paper.title }} - Paper Note</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <style>
+        body { background-color: #f8f9fa; }
+        .markdown-preview {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            border: 1px solid #dee2e6;
+            min-height: 400px;
+        }
+        /* 讓 Markdown 內容好看一點 */
+        .markdown-preview h1, .markdown-preview h2 { border-bottom: 1px solid #eee; padding-bottom: 10px; margin-top: 20px;}
+        .markdown-preview code { background-color: #f4f4f4; padding: 2px 5px; border-radius: 3px; color: #d63384; }
+        .markdown-preview pre { background-color: #2d2d2d; color: #fff; padding: 15px; border-radius: 5px; overflow-x: auto; }
+        .markdown-preview blockquote { border-left: 4px solid #dfe2e5; color: #6a737d; padding-left: 15px; margin-left: 0; }
+        textarea.form-control { font-family: 'Consolas', 'Monaco', monospace; font-size: 0.95rem; }
+    </style>
+</head>
+<body>
+
+<div class="container py-4">
+    <!-- 導航麵包屑 -->
+    <nav aria-label="breadcrumb" class="mb-4">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/" class="text-decoration-none"><i class="bi bi-house"></i> 回列表</a></li>
+            <li class="breadcrumb-item active" aria-current="page">論文詳情</li>
+        </ol>
+    </nav>
+
+    <!-- 論文資訊卡片 -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-9">
+                    <h2 class="fw-bold">{{ paper.title }}</h2>
+                    <p class="text-muted mb-2">
+                        <i class="bi bi-people"></i> {{ paper.authors }} &nbsp;|&nbsp; 
+                        <i class="bi bi-calendar"></i> {{ paper.published_date }}
+                    </p>
+                    <div class="mb-3">
+                        <a href="{{ paper.url }}" target="_blank" class="btn btn-primary btn-sm"><i class="bi bi-file-earmark-pdf"></i> 開啟論文</a>
+                        <a href="https://www.connectedpapers.com/search?q={{ paper.url }}" target="_blank" class="btn btn-outline-dark btn-sm"><i class="bi bi-share"></i> Connected Papers</a>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="copyBibTex()">Copy BibTeX</button>
+                    </div>
+                    <!-- 標籤顯示 -->
+                    <div>
+                        {% if paper.tag_names %}
+                            {% for tname in paper.tag_names.split(',') %}
+                                <span class="badge bg-light text-secondary border">#{{ tname }}</span>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="col-md-3 text-end border-start">
+                    <form action="/update/{{ paper.id }}" method="POST">
+                        <div class="mb-3 text-start">
+                            <label class="form-label small text-muted">資料夾</label>
+                            <select name="folder_id" class="form-select form-select-sm" onchange="this.form.submit()">
+                                {% for folder in folders %}
+                                <option value="{{ folder.id }}" {% if paper.folder_id == folder.id %}selected{% endif %}>{{ folder.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-check form-switch d-inline-block">
+                            <input class="form-check-input" type="checkbox" name="is_read" id="readStatus" {% if paper.is_read %}checked{% endif %} onchange="this.form.submit()">
+                            <label class="form-check-label" for="readStatus">已讀</label>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 筆記編輯與預覽區 (Tabs) -->
+    <div class="row">
+        <div class="col-12">
+            <ul class="nav nav-tabs mb-3" id="noteTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="view-tab" data-bs-toggle="tab" data-bs-target="#view" type="button"><i class="bi bi-eye"></i> 閱讀筆記</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="edit-tab" data-bs-toggle="tab" data-bs-target="#edit" type="button"><i class="bi bi-pencil-square"></i> 編輯 Markdown</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="bibtex-tab" data-bs-toggle="tab" data-bs-target="#bibtex" type="button"><i class="bi bi-code"></i> BibTeX</button>
+                </li>
+            </ul>
+
+            <div class="tab-content" id="noteTabsContent">
+                <!-- 閱讀模式 (預設) -->
+                <div class="tab-pane fade show active" id="view" role="tabpanel">
+                    <div class="markdown-preview">
+                        {% if paper.notes %}
+                            {{ paper.notes | markdown }}
+                        {% else %}
+                            <p class="text-muted text-center py-5">還沒有筆記，切換到「編輯」頁籤開始撰寫吧！</p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- 編輯模式 -->
+                <div class="tab-pane fade" id="edit" role="tabpanel">
+                    <form action="/update/{{ paper.id }}" method="POST">
+                        <div class="mb-3">
+                            <textarea name="notes" class="form-control" rows="15" placeholder="# 筆記標題&#10;- 重點 1&#10;- 重點 2">{{ paper.notes }}</textarea>
+                            <div class="form-text">支援 Markdown 語法 (## 標題, - 列表, `程式碼`)</div>
+                        </div>
+                        
+                        <!-- 也可以在這裡編輯 Tags -->
+                        <div class="mb-3">
+                            <label class="form-label">編輯標籤 (逗號分隔)</label>
+                            <input type="text" name="tags_input" class="form-control" value="{{ paper.tag_names if paper.tag_names else '' }}">
+                        </div>
+
+                        <div class="d-flex justify-content-end gap-2">
+                            <button type="submit" class="btn btn-success"><i class="bi bi-save"></i> 儲存筆記</button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- BibTeX 模式 -->
+                <div class="tab-pane fade" id="bibtex" role="tabpanel">
+                     <form action="/update/{{ paper.id }}" method="POST">
+                        <textarea id="bibtexRaw" name="bibtex" class="form-control font-monospace mb-3" rows="6">{{ paper.bibtex }}</textarea>
+                        <div class="text-end">
+                             <button type="submit" class="btn btn-sm btn-primary">更新 BibTeX</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    function copyBibTex() {
+        var copyText = document.getElementById("bibtexRaw");
+        navigator.clipboard.writeText(copyText.value).then(function() {
+            alert('BibTeX 已複製！');
+        });
+    }
+</script>
+</body>
+</html>
