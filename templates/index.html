@@ -7,6 +7,25 @@
     <title>Paper Manager</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <!-- MathJax for LaTeX support -->
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script>
+        MathJax = {
+            tex: {
+                inlineMath: [['$', '$']],
+                displayMath: [['$$', '$$']]
+            },
+            startup: {
+                pageReady: () => {
+                    return MathJax.typesetPromise();
+                }
+            },
+            svg: {
+                fontCache: 'global'
+            }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
     <style>
         body {
             background-color: #f4f6f8;
@@ -86,10 +105,26 @@
                 </div>
                 <nav class="nav flex-column mb-4">
                     {% for folder in folders %}
-                    <a href="/?folder_id={{ folder.id }}"
-                        class="nav-link {{ 'active' if active_folder|string == folder.id|string }}">
-                        <i class="bi bi-folder2"></i> {{ folder.name }}
-                    </a>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <a href="/?folder_id={{ folder.id }}"
+                            class="nav-link {{ 'active' if active_folder|string == folder.id|string }} flex-grow-1">
+                            <i class="bi bi-folder2"></i> {{ folder.name }}
+                        </a>
+                        {% if folder.id != 1 %}
+                        <div class="btn-group btn-group-sm" role="group">
+                            <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1" 
+                                data-bs-toggle="modal" data-bs-target="#editFolderModal"
+                                onclick="setEditFolderData({{ folder.id }}, '{{ folder.name }}')">
+                                <i class="bi bi-pencil-square"></i>
+                            </button>
+                            <button type="button" class="btn btn-outline-danger btn-sm py-0 px-1"
+                                onclick="if(confirm('確定刪除此資料夾？其中的論文將移至收件匣')) document.getElementById('del-folder-{{ folder.id }}').submit()">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                        <form id="del-folder-{{ folder.id }}" action="/delete_folder/{{ folder.id }}" method="POST" class="d-none"></form>
+                        {% endif %}
+                    </div>
                     {% endfor %}
                 </nav>
                 <div class="px-2 mb-2"><small class="text-uppercase text-muted fw-bold">標籤</small></div>
@@ -133,6 +168,19 @@
 
                 <h3 class="mb-3">{{ current_filter }} <span class="badge bg-secondary fs-6 rounded-pill align-top">{{
                         papers|length }}</span></h3>
+
+                <!-- Sort buttons -->
+                <div class="mb-3 d-flex gap-2">
+                    <small class="text-muted align-self-center">排序:</small>
+                    <a href="?{% if request.args.folder_id %}folder_id={{ request.args.folder_id }}&{% endif %}{% if request.args.tag_id %}tag_id={{ request.args.tag_id }}&{% endif %}{% if request.args.status %}status={{ request.args.status }}&{% endif %}sort=created" 
+                        class="btn btn-sm {{ 'btn-primary' if sort == 'created' or not sort else 'btn-outline-secondary' }}">
+                        <i class="bi bi-clock-history"></i> 新增時間
+                    </a>
+                    <a href="?{% if request.args.folder_id %}folder_id={{ request.args.folder_id }}&{% endif %}{% if request.args.tag_id %}tag_id={{ request.args.tag_id }}&{% endif %}{% if request.args.status %}status={{ request.args.status }}&{% endif %}sort=published" 
+                        class="btn btn-sm {{ 'btn-primary' if sort == 'published' else 'btn-outline-secondary' }}">
+                        <i class="bi bi-calendar-event"></i> 發表時間
+                    </a>
+                </div>
 
                 <div class="row">
                     {% for paper in papers %}
@@ -197,9 +245,10 @@
 
                                         <div class="col-md-3 text-end">
                                             <div class="form-check form-switch d-inline-block">
-                                                <input class="form-check-input" type="checkbox" name="is_read"
-                                                    id="read_{{ paper.id }}" {% if paper.is_read %}checked{% endif %}
-                                                    onchange="this.form.submit()">
+                                                <input class="form-check-input" type="checkbox" 
+                                                    id="read_{{ paper.id }}" 
+                                                    {% if paper.is_read %}checked{% endif %}
+                                                    onchange="toggleReadStatus({{ paper.id }}, this.checked)">
                                                 <label class="form-check-label" for="read_{{ paper.id }}">已讀</label>
                                             </div>
                                         </div>
@@ -275,13 +324,34 @@
                                         </button>
                                     </div>
                                 </form>
-                                <form id="del-{{ paper.id }}" action="/delete/{{ paper.id }}" method="POST"
+                                <form id="del-{{ paper.id }}" action="/delete/{{ paper.id }}?{% if request.args.folder_id %}folder_id={{ request.args.folder_id }}&{% endif %}{% if request.args.tag_id %}tag_id={{ request.args.tag_id }}&{% endif %}{% if request.args.status %}status={{ request.args.status }}&{% endif %}{% if sort %}sort={{ sort }}{% endif %}" method="POST"
                                     class="d-none"></form>
                             </div>
                         </div>
                     </div>
                     {% endfor %}
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Folder Modal -->
+    <div class="modal fade" id="editFolderModal" tabindex="-1">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">編輯資料夾</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form id="editFolderForm" action="" method="POST">
+                    <div class="modal-body">
+                        <input type="text" id="editFolderName" name="name" class="form-control" placeholder="資料夾名稱" required>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button>
+                        <button type="submit" class="btn btn-primary btn-sm">保存</button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
@@ -308,6 +378,32 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        function setEditFolderData(folderId, folderName) {
+            document.getElementById('editFolderForm').action = `/update_folder/${folderId}`;
+            document.getElementById('editFolderName').value = folderName;
+        }
+
+        function toggleReadStatus(paperId, isChecked) {
+            // Create form data
+            const formData = new FormData();
+            formData.append('is_read', isChecked ? '1' : '0');
+            
+            // Send AJAX request
+            fetch(`/update/${paperId}`, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (response.ok) {
+                    // Update the card's background color without reload
+                    const card = document.querySelector(`#read_${paperId}`).closest('.paper-card');
+                    card.className = card.className.replace(/read-status-[01]/g, '');
+                    card.classList.add(`read-status-${isChecked ? '1' : '0'}`);
+                }
+            })
+            .catch(error => console.error('Error:', error));
+        }
+
         function copyBibTex(elementId, btn) {
             // 取得 BibTeX 內容
             var copyText = document.getElementById(elementId);
@@ -330,6 +426,13 @@
                 console.error('Could not copy text: ', err);
             });
         }
+
+        // Trigger MathJax rendering when collapse is shown
+        document.addEventListener('show.bs.collapse', function(e) {
+            if (window.MathJax) {
+                setTimeout(() => MathJax.typesetPromise().catch(err => console.log(err)), 100);
+            }
+        });
     </script>
 </body>
 

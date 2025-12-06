@@ -171,6 +171,7 @@ def index():
     folder_id = request.args.get('folder_id')
     tag_id = request.args.get('tag_id')
     status = request.args.get('status')
+    sort = request.args.get('sort', 'created')  # 'created' or 'published'
     
     conn = get_db()
     query = """
@@ -191,7 +192,13 @@ def index():
     elif status == 'read': conditions.append("p.is_read = 1")
 
     if conditions: query += " WHERE " + " AND ".join(conditions)
-    query += " GROUP BY p.id ORDER BY p.created_at DESC"
+    query += " GROUP BY p.id"
+    
+    # Add sorting
+    if sort == 'published':
+        query += " ORDER BY p.published_date DESC NULLS LAST"
+    else:
+        query += " ORDER BY p.created_at DESC"
     
     papers = conn.execute(query, params).fetchall()
     folders = conn.execute("SELECT * FROM folders").fetchall()
@@ -209,7 +216,7 @@ def index():
             if str(t['id']) == str(tag_id): current_filter = f"🏷️ {t['name']}"
 
     return render_template('index.html', papers=papers, folders=folders, tags=tags, 
-                           current_filter=current_filter, active_folder=folder_id, active_tag=tag_id)
+                           current_filter=current_filter, active_folder=folder_id, active_tag=tag_id, sort=sort)
 
 @app.route('/paper/<int:paper_id>')
 def paper_detail(paper_id):
@@ -260,36 +267,119 @@ def add_folder():
             conn.commit()
     return redirect(url_for('index'))
 
+@app.route('/update_folder/<int:folder_id>', methods=['POST'])
+def update_folder(folder_id):
+    name = request.form.get('name')
+    if name and folder_id != 1:  # Prevent editing the default Inbox folder
+        with get_db() as conn:
+            conn.execute("UPDATE folders SET name = ? WHERE id = ?", (name, folder_id))
+            conn.commit()
+    return redirect(url_for('index'))
+
+@app.route('/delete_folder/<int:folder_id>', methods=['POST'])
+def delete_folder(folder_id):
+    if folder_id != 1:  # Prevent deleting the default Inbox folder
+        with get_db() as conn:
+            # Move papers in this folder to Inbox before deleting
+            conn.execute("UPDATE papers SET folder_id = 1 WHERE folder_id = ?", (folder_id,))
+            conn.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
+            conn.commit()
+    return redirect(url_for('index'))
+
 @app.route('/update/<int:paper_id>', methods=['POST'])
 def update_paper(paper_id):
     notes = request.form.get('notes')
-    is_read = 1 if request.form.get('is_read') else 0
+    is_read = request.form.get('is_read')
     folder_id = request.form.get('folder_id')
     tags_str = request.form.get('tags_input')
     bibtex = request.form.get('bibtex')
 
     with get_db() as conn:
-        conn.execute("UPDATE papers SET notes = ?, is_read = ?, folder_id = ?, bibtex = ? WHERE id = ?", 
-                     (notes, is_read, folder_id, bibtex, paper_id))
+        # Only update fields that are being submitted
+        updates = []
+        params = []
+        
+        if notes is not None:
+            updates.append("notes = ?")
+            params.append(notes)
+        
+        # is_read is always submitted now (via hidden field + checkbox)
+        if is_read is not None:
+            updates.append("is_read = ?")
+            params.append(int(is_read))
+        
+        if folder_id is not None:
+            updates.append("folder_id = ?")
+            params.append(folder_id)
+        
+        if bibtex is not None:
+            updates.append("bibtex = ?")
+            params.append(bibtex)
+        
+        if updates:
+            params.append(paper_id)
+            query = f"UPDATE papers SET {', '.join(updates)} WHERE id = ?"
+            conn.execute(query, params)
+        
         if tags_str is not None:
-             # 因為詳情頁可能會直接傳送 tags input，所以這裡要處理
-             # 注意：詳情頁的 update 邏輯要共用 process_tags
-             from app import process_tags # 示意
-             process_tags(conn, paper_id, tags_str)
+            process_tags(conn, paper_id, tags_str)
+        
         conn.commit()
     
-    # 智慧導向：如果是從詳情頁來的，就回到詳情頁；否則回首頁
+    # 智慧導向：如果是從詳情頁來的，就回到詳情頁；否則回首頁並保留篩選參數
     referrer = request.referrer
     if referrer and 'paper' in referrer:
         return redirect(url_for('paper_detail', paper_id=paper_id))
-    return redirect(url_for('index'))
+    
+    # Build query string to preserve filters
+    query_params = []
+    folder_id_param = request.args.get('folder_id')
+    tag_id_param = request.args.get('tag_id')
+    status_param = request.args.get('status')
+    sort_param = request.args.get('sort')
+    
+    if folder_id_param:
+        query_params.append(f"folder_id={folder_id_param}")
+    if tag_id_param:
+        query_params.append(f"tag_id={tag_id_param}")
+    if status_param:
+        query_params.append(f"status={status_param}")
+    if sort_param:
+        query_params.append(f"sort={sort_param}")
+    
+    redirect_url = url_for('index')
+    if query_params:
+        redirect_url += '?' + '&'.join(query_params)
+    
+    return redirect(redirect_url)
 
 @app.route('/delete/<int:paper_id>', methods=['POST'])
 def delete_paper(paper_id):
     with get_db() as conn:
         conn.execute("DELETE FROM papers WHERE id = ?", (paper_id,))
         conn.commit()
-    return redirect(url_for('index'))
+    
+    # Build query string to preserve filters
+    query_params = []
+    folder_id = request.args.get('folder_id')
+    tag_id = request.args.get('tag_id')
+    status = request.args.get('status')
+    sort = request.args.get('sort')
+    
+    if folder_id:
+        query_params.append(f"folder_id={folder_id}")
+    if tag_id:
+        query_params.append(f"tag_id={tag_id}")
+    if status:
+        query_params.append(f"status={status}")
+    if sort:
+        query_params.append(f"sort={sort}")
+    
+    redirect_url = url_for('index')
+    if query_params:
+        redirect_url += '?' + '&'.join(query_params)
+    
+    return redirect(redirect_url)
 
 if __name__ == '__main__':
     init_db()

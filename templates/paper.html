@@ -6,6 +6,25 @@
     <title>{{ paper.title }} - Paper Note</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <!-- MathJax for LaTeX support -->
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script>
+        MathJax = {
+            tex: {
+                inlineMath: [['$', '$']],
+                displayMath: [['$$', '$$']]
+            },
+            startup: {
+                pageReady: () => {
+                    return MathJax.typesetPromise();
+                }
+            },
+            svg: {
+                fontCache: 'global'
+            }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
     <style>
         body { background-color: #f8f9fa; }
         .markdown-preview {
@@ -69,7 +88,10 @@
                             </select>
                         </div>
                         <div class="form-check form-switch d-inline-block">
-                            <input class="form-check-input" type="checkbox" name="is_read" id="readStatus" {% if paper.is_read %}checked{% endif %} onchange="this.form.submit()">
+                            <input class="form-check-input" type="checkbox" 
+                                id="readStatus" 
+                                {% if paper.is_read %}checked{% endif %}
+                                onchange="toggleReadStatus({{ paper.id }}, this.checked)">
                             <label class="form-check-label" for="readStatus">已讀</label>
                         </div>
                     </form>
@@ -109,8 +131,8 @@
                 <div class="tab-pane fade" id="edit" role="tabpanel">
                     <form action="/update/{{ paper.id }}" method="POST">
                         <div class="mb-3">
-                            <textarea name="notes" class="form-control" rows="15" placeholder="# 筆記標題&#10;- 重點 1&#10;- 重點 2">{{ paper.notes }}</textarea>
-                            <div class="form-text">支援 Markdown 語法 (## 標題, - 列表, `程式碼`)</div>
+                            <textarea name="notes" class="form-control" rows="15" placeholder="# 筆記標題&#10;- 重點 1&#10;- 重點 2&#10;&#10;公式: $E = mc^2$&#10;&#10;$$\frac{1}{2}$$">{{ paper.notes }}</textarea>
+                            <div class="form-text">支援 Markdown 語法 (## 標題, - 列表, `程式碼`) 和 LaTeX 公式 ($...$ 或 $$...$$)</div>
                         </div>
                         
                         <!-- 也可以在這裡編輯 Tags -->
@@ -118,6 +140,9 @@
                             <label class="form-label">編輯標籤 (逗號分隔)</label>
                             <input type="text" name="tags_input" class="form-control" value="{{ paper.tag_names if paper.tag_names else '' }}">
                         </div>
+
+                        <!-- 隱藏欄位：保留原始資料夾 -->
+                        <input type="hidden" name="folder_id" value="{{ paper.folder_id }}">
 
                         <div class="d-flex justify-content-end gap-2">
                             <button type="submit" class="btn btn-success"><i class="bi bi-save"></i> 儲存筆記</button>
@@ -141,12 +166,33 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
+    function toggleReadStatus(paperId, isChecked) {
+        const formData = new FormData();
+        formData.append('is_read', isChecked ? '1' : '0');
+        
+        fetch(`/update/${paperId}`, {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => {
+            if (!response.ok) throw new Error('Update failed');
+        })
+        .catch(error => console.error('Error:', error));
+    }
+
     function copyBibTex() {
         var copyText = document.getElementById("bibtexRaw");
         navigator.clipboard.writeText(copyText.value).then(function() {
             alert('BibTeX 已複製！');
         });
     }
+
+    // Trigger MathJax rendering after tab switch
+    document.addEventListener('shown.bs.tab', function(e) {
+        if (window.MathJax) {
+            MathJax.typesetPromise().catch(err => console.log(err));
+        }
+    });
 </script>
 </body>
 </html>
